@@ -7,10 +7,14 @@ def fmt(text,colors=[]):
         for i, col in enumerate(colors):
             if col == "red":
                 fmts += "31"
+            elif col ==  "bred":
+                fmts += "92"
             elif col ==  "green":
+                fmts += "32"
+            elif col ==  "bgreen":
                 fmts += "92"
             elif col ==  "yellow":
-                fmts += "93"
+                fmts += "33"
             elif col ==  "blue":
                 fmts += "94"
             elif col ==  "purple" or col ==  "magenta":
@@ -73,22 +77,47 @@ class ColLog:
 
     def blue(self, msg):
         Debug.info(fmt(msg, ["blue"]))
-
+    
+    def purple(self, msg):
+        Debug.info(fmt(msg, ["purple"]))
+    
     def green(self, msg):
-        Debug.info(fmt(msg, ["green"]))
+        Debug.info(fmt(msg, ["bgreen"]))
 
     def yellow(self, msg):
         Debug.info(fmt(msg, ["yellow"]))
 
     def red(self, msg):
         Debug.info(fmt(msg, ["red"]))
-    
+
+    def grey(self, msg):
+        Debug.info(fmt(msg, ["grey"]))
+
+    def getScoreColor(self, score):
+        if score < 0.3:
+            return "bred"
+        elif score < 0.5:
+            return "yellow"
+        elif score < 0.7:
+            return "white"
+        elif score < 0.9:
+            return "cyan"
+        else:
+            return "bgreen"
+
     def printh(self, msg):
         if "\u001B" in msg:
             print(self.prefix+msg)
         elif "[action]" in msg:
             print(fmt(self.prefix+msg, ["green"]))
         elif "[info] Couldn't find" in msg:
-            print(fmt(self.prefix+msg, ["grey"]))
+            print(fmt(self.prefix+"[info] Couldn't find %s"%msg[msg.index("d \'")+3:msg.index("' w")], ['yellow']))
+        elif "[info] Found match" in msg:
+            # example: [info] Found match for pattern 'images/831-775/inv/highalchemy.PNG' at ( 2149,754) with confidence ( 0.9823780655860901). Target at ( 2166,769)
+            score = "%s"%(msg[msg.index("e (")+3:msg.index(". T")-1])
+            print(fmt(self.prefix+"[info] Found %s -> "%msg[msg.index("n \'")+3:msg.index("' a")], ["green"])+fmt(score, [self.getScoreColor(float(score))]))
         else:
-            print(fmt(self.prefix+msg, ["purple"]))
+            print(fmt(self.prefix+msg, ["grey"]))
+
+
+            

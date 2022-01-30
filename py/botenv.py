@@ -21,16 +21,13 @@ def imageMissing(event):
     ColLog().red("***** Missing image: %s"%event)
     return
 
-def getImageSet(imgBaseName):
-    imgPattern = "%s%s*"%(getImagePath()[1], imgBaseName)
-    # self.log(imgPattern)
-    glb = glob.glob(imgPattern)
-    return list(map(os.path.basename, glb))
     
 # Environment classes -- handle all communication between bot and runescape window
 class RSenv:
+
     def __init__(self):
         self.banking = False
+        self.location = None
 
         #debug self.logging settings
         self.logger = ColLog()
@@ -71,11 +68,36 @@ class RSenv:
             self.error("did not find Runescape window")
             exit(0)
 
+    def getImageSet(self, imgBaseName):
+        self.logger.incIndent("getIMGS()")
+        # treat all "_" chars in imgBaseName as directories
+        imgP = imgBaseName.split("_")
+        dirs = [getImagePath()[1][:-1]]
+        dirs.extend(imgP)
+        dirstr = "/".join(dirs[:-1])+"/"
+        if not os.path.isdir(dirstr):
+            self.warn("'%s' not found. Creating directories."%dirstr)
+            os.makedirs(dirstr)
+        if dirstr not in getImagePath():
+            addImagePath(dirstr)
+        imgPattern = "%s%s*"%(dirstr, imgP[-1])
+        # self.logg("searching for images matching %s"%(imgPattern))
+        # self.log(imgPattern)
+        glb = glob.glob(imgPattern)
+        self.logger.decIndent()
+        return list(map(os.path.basename, glb))
+   
     def log(self, msg):
-        self.logger.cyan(msg)
+        self.logger.blue(msg)
 
     def logh(self, msg):
-        self.logger.blue(msg)
+        self.logger.cyan(msg)
+
+    def logp(self, msg):
+        self.logger.purple(msg)
+
+    def logg(self, msg):
+        self.logger.grey(msg)
 
     def info(self, msg):
         self.logger.green(msg)
@@ -105,7 +127,7 @@ class RSenv:
             sim = Settings.MinSimilarity
         defs = Settings.MinSimilarity
         Settings.MinSimilarity = sim
-        imgs = getImageSet(img)
+        imgs = self.getImageSet(img)
         self.log("waiting for one of %s"%imgs)
         if len(imgs) == 0:
             self.error("did not find any matching images for: "+img)
@@ -130,19 +152,46 @@ class RSenv:
         defs = Settings.MinSimilarity
         Settings.MinSimilarity = sim
         defAWT = reg.getAutoWaitTimeout()
-        imgs = getImageSet(img)
+        imgs = self.getImageSet(img)
         imgf = None
         if len(imgs) == 0:
             self.error("could not find matching images for: '%s'"%img)
             return None
         else:
             imgf = imgs[0]
-        self.info("looking for %s"%img)
+        self.log("looking for %s"%img)
         reg.setAutoWaitTimeout(0)
         x = reg.exists(imgf)
         reg.setAutoWaitTimeout(defAWT)
         Settings.MinSimilarity = defs
         return x
+
+    def whichOneOf(self, img, wait=None, reg=None, sim=None):
+        if reg is None:
+            reg = self.window
+        if sim is None:
+            sim = Settings.MinSimilarity
+        defs = Settings.MinSimilarity
+        Settings.MinSimilarity = sim
+        defAWT = reg.getAutoWaitTimeout()
+        imgs = self.getImageSet(img)
+        self.log("looking for one of %s"%imgs)
+        if len(imgs) == 0:
+            self.error("did not find any matching images for: "+img)
+        reg.setAutoWaitTimeout(0)
+        x = None
+        for i in imgs:
+            try:
+                x = reg.exists(i, wait)
+            except:
+                continue
+            if x is not None:
+                fname = i.split(".")[0]
+                self.logp("Found %s -> %s"%(i, fname))
+                return x, fname
+        reg.setAutoWaitTimeout(defAWT)
+        Settings.MinSimilarity = defs
+        return None
 
     def existsAny(self, img, reg=None, sim=None):
         if reg is None:
@@ -152,8 +201,8 @@ class RSenv:
         defs = Settings.MinSimilarity
         Settings.MinSimilarity = sim
         defAWT = reg.getAutoWaitTimeout()
-        imgs = getImageSet(img)
-        self.info("looking for one of %s"%imgs)
+        imgs = self.getImageSet(img)
+        self.log("looking for one of %s"%imgs)
         if len(imgs) == 0:
             self.error("did not find any matching images for: "+img)
         reg.setAutoWaitTimeout(0)
@@ -246,24 +295,13 @@ class winEnv(RSenv):
         # win32gui.PostMessage(self.rswnd, win32con.WM_LBUTTONDBLCLK, None, lParam)
 
     def dclickLoc(self, x, y):
-         # self.log("clicking in background %s,%s"%(x,y))
         lParam = win32api.MAKELONG(x, y)
-        # clickarea = self.window.offset(Location(y-self.window.getX()-10, y-self.window.getY()-10), dy=0)
-        # clickarea.setW(10)
-        # clickarea.setH(10)
-        # clickarea.highlight(3)
+        self.warn("[altclick] (%s,%s)"%(x,y))
         for i in range(3):
-            # win32gui.PostMessage(self.rswnd, win32con.WM_MOUSEMOVE, None, lParam)
             win32gui.PostMessage(self.rswnd, win32con.WM_LBUTTONDOWN, win32con.VK_LBUTTON, lParam)
-            self.warn("mousedown (%s,%s)"%(x,y))
-            sleep(0.01)
-            # self.warn("sleeping")
-            self.warn("releasing%s"%i)
+            sleep(0.02)
+            # self.warn("releasing%s"%i)
             win32gui.PostMessage(self.rswnd, win32con.WM_LBUTTONUP, win32con.VK_LBUTTON, lParam)
-        # sleep(4)
-        # self.warn("releasing2")
-        # win32gui.PostMessage(self.rswnd, win32con.WM_LBUTTONUP, None, lParam)
-        # win32gui.PostMessage(self.rswnd, win32con.WM_LBUTTONDBLCLK, None, lParam)
 
     def keyUp(self, k):
         if k == Key.UP:

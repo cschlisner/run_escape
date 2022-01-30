@@ -1,0 +1,15 @@
+{
+  "mine": {
+    "iron": 192,
+    "oresMissed": 0
+  },
+  "alchemy": {},
+  "superheat": {
+    "iron": 232
+  },
+  "cut": {},
+  "firemake": {},
+  "smith": {
+    "iron": 0
+  }
+}

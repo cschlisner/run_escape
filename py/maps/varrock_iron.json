@@ -2,5 +2,9 @@
   "varrock_iron_map0.PNG": [
     "iron_orev2.PNG",
     "iron_orev3.PNG"
+  ],
+  "map0": [
+    "ore1.PNG",
+    "ore22.PNG"
   ]
 }

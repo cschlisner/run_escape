@@ -1,6 +1,5 @@
 import json
-from operator import inv
-import re
+from textwrap import indent
 from lackey import *
 from keyboard import mouse
 from botenv import *
@@ -20,45 +19,89 @@ def is_q_down():
    state = win32api.GetAsyncKeyState(key_code)
    return state != 0
 
+# XP table for different resources/spells
+XPTABLE = {
+    "iron": 35,
+    "alchemy": 65,
+    'oresMissed': -35,
+    "superheat": 53+12,
+}
+
+# tracker for amount of resource types processed
+STATS = {
+    "mine": {},
+    "alchemy": {},
+    "superheat": {},
+    "cut": {},
+    "firemake": {},
+    "smith": {},
+    "smith": {},
+}
+
+ORE_TIMEOUT = {
+    'iron': 1,
+}
+
+
+class NoOreException(Exception):
+    pass
+
 class RSBot:
     def __init__(self):
         self.env = getEnv()
         self.env.log("RSBot __init__()")    
         self.scrollpos = -1
-        self.amtMined = 0
         self.mmap = None
         self.defSim = 0.8
         self.running=False
         self.inv_full = False
+        conf_f = "config.json"
+        if not os.path.exists(conf_f):
+            self.env.error("config.jspon not found. Creating config template and exiting.")
+            with open(conf_f, "w+") as conf:
+                conf.write("{\n\t\"login\":{\n\t\t\"user\":\"\",\n\t\t\"pass\":\"\"\n\t}\n}")
+            exit(0)
+        else:
+            with open(conf_f) as config:
+                self.conf = json.load(config)
+        stat_f = "stats.json"
+        if not os.path.exists(stat_f):
+            self.stats = STATS
+        else:
+            with open(stat_f) as stat:
+                self.stats = json.load(stat)
+        # self.stats = STATS
+        statstr = json.dumps(self.stats, indent=2)
+        self.env.logh("%s"%statstr)
 
     def login(self):
         # detect / handle self.env.login 
-        ret = self.env.exists("disconnected")
+        ret = self.env.exists("login_disconnected")
         if ret:
             self.env.click(ret)
-        logIn = self.env.existsAny("loginscr")
+        logIn = self.env.existsAny("login_loginscr")
         if logIn:
             self.env.info("login detected")
             logIn.highlight(1)
             logIn.click()
-            user = self.env.existsAny("user")
+            user = self.env.existsAny("login_user")
             if user:
                 user.highlight(1)
                 user.click()
                 user.click()
                 self.env.info("entering username")
-                type("")
-            passWd = self.env.existsAny("pass")
+                type(self.conf['login']['user'])
+            passWd = self.env.existsAny("login_pass")
             if passWd:
                 passWd.highlight(1)
                 passWd.click()
                 self.env.info("entering password")
-                type("")
-                lginBtn = self.env.existsAny("loginbtn")
+                type(self.conf['login']['pass'])
+                lginBtn = self.env.existsAny("login_loginbtn")
                 if lginBtn:
                     self.env.info("logging in")
                     lginBtn.click()
-                    lginBtnTwo = self.env.wait("nextloginbtn", 10)
+                    lginBtnTwo = self.env.wait("login_nextloginbtn", 10)
                     if lginBtnTwo:
                         lginBtnTwo.click()
                         return
@@ -69,11 +112,11 @@ class RSBot:
         
     def worldSwitch(self):
         self.env.info("Switching Worlds...")
-        self.env.logout = self.env.existsAny("logoutbtn")
+        self.env.logout = self.env.existsAny("inv_logoutbtn")
         if self.env.logout:
             self.env.click(self.env.logout)
             mouse.move(0, -200, absolute=False)
-            worldSwitchBtn = self.env.exists("worldswitch")
+            worldSwitchBtn = self.env.exists("inv_worldswitch")
             if worldSwitchBtn:
                 self.env.click(worldSwitchBtn)
             freeworld = None
@@ -83,26 +126,28 @@ class RSBot:
             while freeworld is None:
                 self.env.scroll(-5)
                 self.scrollpos += 5
-                x = self.env.exists("scrollbottom")
+                x = self.env.exists("inv_scrollbottom")
                 if x and x.getScore() > 0.98:
                     self.env.log("scroll bottom")
                     self.env.scroll(30)
                     self.scrollpos = 0
-                freeworld = self.env.exists("freeworld")
+                freeworld = self.env.exists("inv_freeworld")
             if freeworld.getScore() >= 0.95:
-                inventory = self.env.exists("inventory")
+                inventory = self.env.exists("inv_inventorybtn")
                 self.env.click(freeworld)
                 freeworld.highlight(1)
-                self.env.write("green:wave:ayylmao")
                 if inventory:
                     self.env.click(inventory)
         sleep(1.5)
-        self.env.write("\n")      
+        self.env.write("\n")  
+        self.reorient()    
 
     def reorient(self):
         self.env.info("Reorienting camera")
         Settings.MinSimilarity = 0.5
-        self.env.click(self.env.existsAny("compass"))
+        compass = self.env.existsAny("map_compass", sim=0.8)
+        if compass:
+            self.env.click(compass)
         Settings.MinSimilarity = self.defSim
         self.env.keyDown(Key.UP)
         sleep(2)
@@ -111,7 +156,7 @@ class RSBot:
 
     def getMiniMap(self):
         d = 200
-        self.mmap = self.env.wait("compass")
+        self.mmap = self.env.wait("map_compass", sim=0.8)
         if self.mmap:
             self.mmap.setW(d)
             self.mmap.setH(d)
@@ -122,27 +167,28 @@ class RSBot:
         mmap = self.getMiniMap()
         if mmap:
             self.env.info("determining location...")
-            if self.env.existsAny("bankicon", reg=mmap, sim=0.5):
+            if self.env.existsAny("%s_bankicon"%location, reg=mmap, sim=0.5):
                 self.env.info("found bank.")
                 if self.gotoBank(location, resources):
                     self.env.info("moving to: %s %s"%(location, resources))
                     self.follow(location, resources, reverse=True)
         
-        nl = self.env.existsAny("%s_%s_map"%(location, resources[0]), self.getMiniMap(), sim=0.6)
-    
+        #tuple
+        resource_map = self.env.whichOneOf("%s_%s-map"%(location, resources[0]))
         timeout = 10
-        while nl is None and timeout > 0:
-            maplocators = self.env.existsAny("%s_%s_locator"%(location, resources[0]), self.getMiniMap(), sim=0.5)
+        while resource_map is None and timeout > 0:
+            maplocators = self.env.existsAny("%s_%s-locator"%(location, resources[0]), self.getMiniMap(), sim=0.65)
             if maplocators:
                 self.env.warn("moving to locator: %s"%maplocators)
                 self.env.click(maplocators)
-                maplocators.highlight(8 if self.running else 15)
-            nl = self.env.existsAny("%s_%s_map"%(location, resources[0]), self.getMiniMap(), sim=0.5)
+                maplocators.highlight(True, 1, "green")
+            resource_map = self.env.whichOneOf("%s_%s-map"%(location, resources[0]), wait=3 if self.running else 5, reg=self.getMiniMap(), sim=0.5)
             timeout -= 1
-        if nl:
-            self.env.info("Found location: %s"%nl)
-            self.env.click(nl)
-            nl.highlight(True, 10, "green")
+        if resource_map:
+            self.env.info("Found location: %s"%resource_map[1])
+            self.env.click(resource_map[0])
+            resource_map[0].highlight(True, 1, "green")
+            self.env.wait("%s_#%s_*ore"%(location, resource_map[1]), 7 if self.running else 10)
             self.env.logger.decIndent()
             return True
         self.env.logger.decIndent()
@@ -163,15 +209,15 @@ class RSBot:
 
     def toggleRun(self):
         # click run toggle if run energy is full
-        if self.env.existsAny("runtoggled", sim=0.90) is None:
-            runbtn = self.env.exists("runfull")
+        if self.env.existsAny("run_toggled", sim=0.85) is None:
+            runbtn = self.env.exists("run_full", sim=0.9)
             if runbtn:
                 self.env.log("toggling run")
                 runbtn.highlight(1)
                 self.env.click(runbtn)
                 self.running = True
             else:
-                if self.env.exists("runempty", sim=0.85):
+                if self.env.exists("run_empty", sim=0.85):
                     self.env.log("run empty")
                     self.running = False
         else: self.running = True
@@ -182,7 +228,7 @@ class RSBot:
         if (not os.path.exists("paths/")):
             os.mkdir("paths/")
         with open(fname, "w+") as recf:
-            recf.write("{\n\t\"dir\":\"north\",\n\t\"path\": [\n\t\t")
+            recf.write("{\n\t\"path\": [\n\t\t")
             lastclickt = datetime.now()
             back_arr = False
             nclicks = 0
@@ -207,7 +253,7 @@ class RSBot:
                         recf.write("\"%s\""%pathstep)
                     time.sleep(2)
 
-    def follow(self,  location, resources, reverse=False):
+    def follow(self,  location, resources, reverse=False, abs=False):
         resource = resources
         if type_(resources) == list:
             resource = resources[0]
@@ -222,18 +268,18 @@ class RSBot:
                     return
             else: self.env.error("path '%s' not found. Please record path and restart.")
         
-        self.running = self.env.existsAny("runtoggled", sim=0.9)
+        self.running = self.env.existsAny("run_toggled", sim=0.9)
         with open(pathf) as pathfile:
             path = json.load(pathfile)
-            self.env.warn("FOLLOWING PATH: '%s'\n%s"%(pathf, json.dumps(path, indent=2)))
+            self.env.logp("FOLLOWING PATH: '%s'\n%s"%(pathf, json.dumps(path, indent=2)))
             for step in path['path']:
                 x, y, t = list(map(int, step.split(",")))
-                t = t * 0.5 if self.running else t
+                t = t if abs else t * 0.5 if self.running else t
                 xx = x+self.env.window.getX()
                 yy = y+self.env.window.getY()
-                self.env.log("%s (%sms)"%("running" if self.running else "walking", t))
+                self.env.logh("%s (%sms)"%("running" if self.running else "walking", t))
                 sleep(int(t / 1000) + 1)
-                self.env.log("clicking (%s, %s)"%(x, y))
+                self.env.logh("clicking (%s, %s)"%(x, y))
                 
                 self.env.clickLoc(xx,yy) if not self.env.banking else self.env.dclickLoc(xx, yy)
                 if location != "superheat":
@@ -241,28 +287,28 @@ class RSBot:
 
     def getFromBank(self, resources, noted=False):
         self.env.banking = True
-        bankwindow = self.env.exists("bankwindow")
+        bankwindow = self.env.exists("bank_bankwindow")
         orign = bankwindow.getBottomLeft()
         bankwindow.highlight(1)
         bankwindow.setW(420)
         bankwindow.setH(500)
         bankwindow.setY(orign.y-500)
         bankwindow.highlight(True, 1, "green")
-        bankBtn = self.env.exists("withdrawall")
+        bankBtn = self.env.exists("bank_withdrawall")
         if bankBtn:
             self.env.click(bankBtn)
             sleep(1)
         else:
             self.env.warn("Did not see withdrawall")
         if noted:
-            bankBtn = self.env.exists("withdrawasnote")
+            bankBtn = self.env.exists("bank_withdrawasnote")
             if bankBtn:
                 self.env.click(bankBtn)
                 sleep(1)
             else:
                 self.env.warn("Did not see withdrawasnote")
         for resource in resources:
-            bankItem = self.env.wait("%s_bank"%resource, time=1, reg=bankwindow, sim=0.65)
+            bankItem = self.env.wait("bank_%s"%resource, time=1, reg=bankwindow, sim=0.60)
             if bankItem:
                 self.env.info("Found %s in bank"%resource)
                 self.env.click(bankItem)
@@ -270,7 +316,7 @@ class RSBot:
             else:
                 self.env.warn("Did not see %s in bank."%resource)
                 return False
-        x = self.env.wait("closebankbtn")
+        x = self.env.wait("bank_closebankbtn")
         if x:
             if self.env.lbdown:
                 c = x.getCenter()
@@ -279,43 +325,53 @@ class RSBot:
         else:
             self.env.error("COULD NOT CLOSE BANK??")
         self.env.banking = False
-    def bank(self, gotobooth=False):
-        booth = self.env.wait("boothbank", sim=0.8)
+
+
+    def bankItems(self, location, gotobooth=False):
+        x = self.env.exists("bank_closebankbtn")
+        booth = None
+        if x is None:
+            booth = self.env.wait("%s_boothbank"%location, time=5, sim=0.8)
+        else: 
+            self.env.logh("Bank window open.")
         if booth:
-            self.env.log("found bank booth")
+            self.env.logh("found bank booth")
             self.env.click(booth)
             self.env.dclick(booth)
-            x = self.env.wait("depositbtn")
-            if x:
-                self.env.log("depositing")
-                self.env.click(x)
-                self.inv_full = False
-                self.env.logger.decIndent()
-                return True
+        if x or booth:
+            d = self.env.wait("bank_depositbtn", time=5)
+            if d is None:
+                self.env.error("deposit button not seen.")
+                return False
+            self.env.logh("depositing")
+            self.env.click(d)
+            self.inv_full = False
+            return True
         else:
-            self.env.error("could not find bankbooth")
+            self.env.error("could not bank")
         return False
 
     def gotoBank(self, location, resources):
         self.env.warn("Inventory status: %s"%self.inv_full)
-        if not self.inv_full and self.amtMined > 0 and self.env.wait("boothbank_%s"%location, sim=0.8):
+        if not self.inv_full and self.stats["mine"][resources[0]] > 0 and self.env.wait("%s_boothbank"%location, sim=0.8):
             return True
         self.env.logger.incIndent("bank")
         map = self.getMiniMap()
         if map:
             map.highlight(1)
-            bankicon = self.env.existsAny("bankicon", map, sim=0.6)
+            bankicon = self.env.existsAny("%s_bankicon"%location, map, sim=0.6)
             if bankicon:
                 self.env.info("Moving to bank")
                 self.env.click(bankicon)
                 bankicon.highlight(8)
                 self.env.write(self.talk("bank")+"\n")
-                if self.env.existsAny("emptyinventory", sim=0.98) is None:
-                    self.env.log("Inventory not empty. Depositing....")
-                    return self.bank()
+                if self.env.existsAny("inv_empty", sim=0.98) is None:
+                    self.env.logh("Inventory not empty. Depositing....")
+                    self.env.logger.decIndent()
+                    return self.bankItems(location)
                             
                 else: 
-                    self.env.log("Inventory empty.")
+                    self.env.info("Inventory empty.")
                     self.env.logger.decIndent()
                     return True
             else:
@@ -349,27 +405,18 @@ class RSBot:
         with open(pathf, "w+") as mapfile:
             mapfile.write(json.dumps(mapping, indent=2))
 
-    ore_timeout = {
-        'iron': 1,
-    }
-
+    
     # mine matching oretype for this specific resource location (X_Y_map.PNG) and return inventory full status
     def mineLocation(self, location, resourceLocation, resource): 
+        if self.env.exists("inv_full", sim=0.93):
+            return True
 
         # try to load precalced image mapping for this location
         resourceMap = self.getMapping(location, resource)
         ores = []
         foundOres = []
-        inv_full = self.env.exists("fullinventory", sim=0.85)
-        if inv_full:
-            self.env.logh("Inventory is full. Making bank run.")
-            self.inv_full = True
-            self.env.write(self.talk("invfull"))
-            # go to bank and back
-            self.follow(location, resource)
-            self.gotoBank(location, resource)
-            return True
-        oreSet = getImageSet("%s_ore*"%(resource)) 
+
+        oreSet = self.env.getImageSet("%s_#%s-%s_*ore"%(location, resource, resourceLocation)) 
         overwrite = resourceLocation not in resourceMap or len(resourceMap[resourceLocation]) <= 1
         if overwrite:
             # look for any matching ore if none were cached for this resource map
@@ -380,9 +427,9 @@ class RSBot:
         self.env.info("searching for: %s"%(ores))
         self.oresMissed = 0
         for oi, oref in enumerate(ores):
+            orefname = oref.split(".")[0]
 
-
-            oreFull = self.env.exists(oref, sim=0.93)
+            oreFull = self.env.exists("%s_#%s-%s_%s"%(location, resource, resourceLocation, orefname), sim=0.85)
             
             oreDepleted = None
             if oreFull is None: 
@@ -406,47 +453,50 @@ class RSBot:
                 oreFull.highlight(1)
                 oreFull.onChange(20, self.oreDepletedCB)
                 
-                minedOre = self.env.wait("managed2mine",1)
+                minedOre = self.env.wait("msg_managed2mine",1)
                 if minedOre is None:
-                    noore = self.env.existsAny("noore")
+                    noore = self.env.existsAny("msg_noore", sim=0.9)
                     if noore is None:
-                        pickswing = self.env.exists("pickswing")
+                        pickswing = self.env.exists("msg_pickswing")
                         if pickswing is not None:
                             self.env.logh("Pick swung.")
                             timeout = 0
                             minedOre = None
-                            while minedOre is None and inv_full is None and timeout < 30:
-                                self.env.log("Mining (%s)..."%timeout)
-                                minedOre = self.env.exists("managed2mine")
+                            while minedOre is None and timeout < 15:
+                                self.env.logh("Mining (%s)..."%timeout)
+                                minedOre = self.env.exists("msg_managed2mine")
                                 timeout += 1
                                 if minedOre:
-                                    self.amtMined += 1
-                                    self.env.info("Managed to mine some %s. (%s)"%(resource, self.amtMined))
+                                    self.stats["mine"][resource] += 1
+                                    self.env.logh("Managed to mine some %s. (%s)"%(resource, self.stats["mine"][resource]))
+                                else: 
+                                    inv_full = self.env.exists("inv_full", sim=0.98)
                     else: 
                         self.env.warn("There's no ore here!!!1!1! >:(")
-                        self.oresMissed += 1
+                        self.stats['mine']['oresMissed'] += 1
                 else:
-                    self.amtMined += 1
-                    self.env.info("Managed to mine some %s. (%s)"%(resource, self.amtMined))
+                    self.stats["mine"][resource] += 1
+                    self.env.info("Managed to mine some %s. (%s)"%(resource, self.stats["mine"][resource]))
+
                
-        if self.oresMissed > foundOres: 
+        if self.stats['mine']['oresMissed'] > len(foundOres): 
             self.worldSwitch() # switch worlds if we missed a bunch of ores
         if len(ores) < 3 or overwrite:
-            self.env.log("waiting for ore respawn")
-            sleep(self.ore_timeout[resource])
+            self.env.logh("waiting for ore respawn")
+            sleep(ORE_TIMEOUT[resource])
         
         if overwrite or len(foundOres) >= len(resourceMap[resourceLocation]):
             resourceMap[resourceLocation] = foundOres
-            self.env.log("saving resource mapping: \n%s"%json.dumps(resourceMap[resourceLocation], indent=1))
+            self.env.logh("saving resource mapping: \n%s"%json.dumps(resourceMap[resourceLocation], indent=1))
             self.saveMapping(location, resource, resourceMap)
             if foundOres == []:
                 self.env.error("no ore found. looking for location.")
-                raise Exception("no ore lol")
+                raise NoOreException("no ore lol")
         else:
             self.env.warn("NOT ALL ORES FOUND. REMOVING RESOURCE MAPPING FOR %s in '%s_%s.json'...."%(resourceLocation, location, resource))
             resourceMap[resourceLocation] = [ores[0]]
             self.saveMapping(location, resource, resourceMap)
-        return inv_full        
+        return self.env.exists("inv_full", sim=0.94)        
    
     # mine at specified location
     def mine(self, location, resources):
@@ -455,9 +505,9 @@ class RSBot:
             self.env.error("could not locate")
             return
         # self.reorient()
-
+        self.stats['mine']['oresMissed'] = 0
         #load resource identifier images
-        inv_full = self.env.exists("fullinventory")
+        inv_full = self.env.exists("inv_full", sim=0.98)
         moveTo = True
         lostLMAO = False
         self.env.warn("Mining resources: %s"%resources)
@@ -469,15 +519,14 @@ class RSBot:
             for r_ind, resource in enumerate(resources):
                 self.env.logger.incIndent("%s"%(resource))
                 self.env.warn("mining %s"%resource)
-                curResource = resource
+
                 # visit each location for resource
-                mapfile = "%s_%s_map"%(location, resource)
-                r_locs = getImageSet(mapfile)
+                mapfile = "%s_%s-map"%(location, resource)
+                r_locs = self.env.getImageSet(mapfile)
                 if len(r_locs) == 0:
                     self.env.error("Could not find any matching images for %s"%mapfile)
-                
                 if len(resources) > 1 and resource != resources[r_ind-1]: # don't go to the first location again after locating
-                    maplocators = getImageSet("%s_%s_locator"%(location, resource))
+                    maplocators = self.env.getImageSet("%s_%s-locator"%(location, resource))
                     for ml in maplocators:
                         locatorFound=self.env.exists(ml, self.getMiniMap(), sim=0.5)
                         if locatorFound:
@@ -487,9 +536,11 @@ class RSBot:
                             locatorFound.highlight(4)
 
                 for l_ind, curLoc in enumerate(r_locs):
+                    self.env.warn("finding %s"%curLoc)
+                    resourceLocation = curLoc[curLoc.index("map"):-4]
                     if len(r_locs) > 1 or len(resources) > 1:
                         if not moveTo:
-                            nl = self.env.wait(curLoc, time=8 if self.running else 15, reg=self.getMiniMap(), sim=0.6)
+                            nl = self.env.wait("%s_%s"%(location,resourceLocation), time=8 if self.running else 15, reg=self.getMiniMap(), sim=0.6)
                             if nl:
                                 lostLMAO = False
                                 self.env.warn("Moving to location: %s"%curLoc)
@@ -498,29 +549,38 @@ class RSBot:
                                 nl.highlight(True, 6 if self.running else 10, "green")
                             else:
                                 self.env.warn("Did not see location")
-                    self.env.logger.incIndent(curLoc[curLoc.index("map"):-4])
+                    
                     # mine all ores in this location map
                     try:
-                        inv_full = self.mineLocation(location, curLoc, resource)
-                    except:
+                        self.env.logger.incIndent(resourceLocation)
+                        inv_full = self.mineLocation(location, resourceLocation, resource) # only use the base filename
+                        self.env.logger.decIndent()
+                    except NoOreException:
                         locmisses += 1
                     if inv_full:
                         break
                     moveTo = False
-                    self.env.logger.decIndent()
                 self.env.logger.decIndent()
                 if inv_full:
                     break
                 # if only mining one location check if it has depleted and switch worlds
                 if len(r_locs) == 1 and len(resources) == 1:
-                    oreDepleted = self.env.exists("%s_%s_depleted"%(location, resource))
+                    oreDepleted = self.env.exists("%s_#%s-%s_depleted"%(location, resource, resourceLocation))
                     if oreDepleted:
                         self.env.logh("ORE DEPLETED.")
                         self.worldSwitch()
-                        self.env.click(self.env.exists("inventory"))
+                        self.env.click(self.env.exists("inv_inventorybtn"))
             if lostLMAO:
                 self.env.error("I'm lost! lmao")
-        self.env.log("Trip complete! (%s)"%self.amtMined)
+        if inv_full:
+            self.env.logh("Inventory is full. Making bank run.")
+            self.inv_full = True
+            self.env.write(self.talk("invfull"))
+            # go to bank and back
+            self.follow(location, resource)
+            self.gotoBank(location, resource)
+            return True
+        self.env.logh("Trip complete! (%s)"%self.stats["mine"])
         return True
     
     def woodcut(self):
@@ -532,40 +592,38 @@ class RSBot:
 
     def superheat(self, location, resources):
         atbank = False
-        gotobooth=self.env.exists("closebankbtn") is None
-        if gotobooth or self.env.existsAny("boothbank") is None:
+        if self.env.existsAny("%s_boothbank"%location, sim=0.8) is None:
             atBank = self.gotoBank(location, resources)
-        elif gotobooth:
-            atBank = self.bank(True)
         else: 
-            atBank = self.bank()
+            atBank = self.bankItems(location)
         if not atBank:
-            self.env.error("Not at bank booth / couldn't withdraw all items")
-            return
+            self.env.error("Not at bank booth")
+            return True
         bankitems = ["natrunes"]
         bankitems.extend(resources)
-        self.getFromBank(bankitems)
+        self.getFromBank(bankitems, noted=False)
 
         resource = resources[0]
-        invbtn = self.env.wait("inventory", sim=0.8)
+        invbtn = self.env.wait("inv_inventorybtn", sim=0.8)
         if invbtn:
             self.env.click(invbtn)
 
-        inventory = self.env.wait("invbar", sim=0.6)
+        inventory = self.env.wait("inv_invbar", sim=0.6)
         if inventory:
             inventory.setH(300)
             inventory.highlight(1)
-            oreinv = self.env.exists("invore_%s"%resource, inventory)
+            oreinv = self.env.exists("item_%s"%resource, reg=inventory, sim=0.8)
             while oreinv:
-                spellbk = self.env.existsAny("spellbook", sim=0.9)
+                spellbk = self.env.existsAny("inv_spellbook", sim=0.9)
                 if spellbk:
                     self.env.click(spellbk)
-                    superh = self.env.exists("superheat", sim=0.9)
+                    superh = self.env.exists("inv_superheat", sim=0.9)
                     if superh:
                         self.env.click(superh)
-                        oreinv = self.env.wait("invore_%s"%resource, time=1, reg=inventory)
+                        oreinv = self.env.wait("item_%s"%resource, time=1, reg=inventory)
                         if oreinv:
                             self.env.click(oreinv)
+                            self.stats["superheat"][resource] += 1
                         sleep(0.4)
                     else: 
                         self.env.warn("Did not find superheat. Out of Nats?")
@@ -575,10 +633,10 @@ class RSBot:
 
     def alchemy(self, location, resources):
         atbank = False
-        if self.env.existsAny("boothbank") is None:
+        if self.env.existsAny("%s_boothbank"%location, sim=0.8) is None:
             atBank = self.gotoBank(location, resources)
         else: 
-            atBank = self.bank()
+            atBank = self.bankItems(location)
         if not atBank:
             self.env.error("Not at bank booth")
             return True
@@ -587,34 +645,48 @@ class RSBot:
         self.getFromBank(bankitems, noted=True)
 
         resource = resources[0]
-        invbtn = self.env.wait("inventory", sim=0.8)
+        invbtn = self.env.wait("inv_inventorybtn", sim=0.8)
         if invbtn:
             self.env.click(invbtn)
 
-        inventory = self.env.wait("invbar", sim=0.6)
+        inventory = self.env.wait("inv_invbar", sim=0.6)
         if inventory:
-            inventory.setH(300)
+            inventory.setH(350)
+            inventory.setW(inventory.getW()+20)
+            inventory.setX(inventory.getX()-10)
+            inventory.setY(inventory.getY()-20)
             inventory.highlight(1)
-            emptyinv = self.env.wait("alc_invempty", time=1, reg=inventory)
+            emptyinv = self.env.wait("alc_empty", time=1, reg=inventory)
             while emptyinv is None:
-                spellbk = self.env.existsAny("spellbook", sim=0.9)
+                spellbk = self.env.existsAny("inv_spellbook", sim=0.9)
                 if spellbk:
                     self.env.click(spellbk)
-                    spell = self.env.exists("highalchemy", sim=0.9)
+                    spell = self.env.exists("inv_highalchemy", sim=0.9)
                     if spell:
                         self.env.click(spell)
-                        emptyinv = self.env.exists("alc_invempty", reg=inventory)
                         if emptyinv is None:
-                            alc_item = self.env.exists("%s_noted"%resource)
+                            alc_item = self.env.exists("item_%s-noted"%resource, sim=0.5)
                             if alc_item:
                                 self.env.click(alc_item)
+                                self.stats["alchemy"][resource] += 1
                             else:
                                 self.env.warn("did not see item")
                                 return True
+                        emptyinv = self.env.exists("alc_empty", reg=inventory)
                     else: 
                         self.env.warn("Did not find spell. Out of Nats?")
                         return False
         return True
+
+    def smith(self, location, resources):
+        oriented = False
+        for i in range(5):
+            self.bankItems(location)
+            self.getFromBank(["hammer", "ironbars"])
+            if not oriented:
+                self.env.scroll(-100)
+                oriented=True
+            self.follow("smith", "ironplatelegs", abs=True)
 
     # do ($operation for $resource in $location) * $iterations 
 
@@ -630,30 +702,27 @@ class RSBot:
             "superheat": self.superheat,
             "alchemy": self.alchemy,
             "bank": self.gotoBank,
+            "smith": self.smith,
         }
 
         if operation not in operationMap:
             self.env.error("operation '%s' not found", operation)
 
+        for resource in resources:
+            if resource not in self.stats[operation]:
+                self.stats[operation][resource] = 0
+
         self.env.write("\n") #clear input
         self.env.logger.incIndent("%s"%location)
-
         i = 0
+        # make sure we are self.env.logged in, window visible etc
+        PlatformManager.focusWindow(self.env.rswindow)
+
+        if self.env.exists("map_minimapglobe") is None:
+            self.login()
+        self.reorient()
         while (iterations is None  or i < iterations):
             i += 1
-
-            ###### see if user terminated app
-            # if (platform.system() == "Windows"):
-            #     if win32api.GetAsyncKeyState(ord('W')):
-            #         sys.exit(0)
-
-            # make sure we are self.env.logged in, window visible etc
-            PlatformManager.focusWindow(self.env.rswindow)
-
-            if self.env.exists("minimapglobe") is None:
-                self.login()
-                self.reorient()
-            
             # do op
             start_t = datetime.now()
             self.env.warn("Starting: %s %s %s %s"%(operation, location, resources, start_t))
@@ -663,8 +732,26 @@ class RSBot:
             self.env.logger.decIndent(2)
 
             start_t = int((datetime.now() - start_t).total_seconds())
-            self.env.warn("Operation %s %s %s finished %s (%s) in %ss"%(operation, location, resources, "succesfully" if ret else "unsuccessfully", i, start_t))
-            self.env.warn("Mined: (%s) -> %s"%(self.amtMined, "?" if resources[0] not in xpmap else self.amtMined * xpmap[resources[0]]))
+            
+            self.env.logh(''.join(["="]*100))
+            
+            self.env.logp("Operation %s %s %s finished %s (%s) in %ss"%(operation, location, resources, "succesfully" if ret else "unsuccessfully", i, start_t))
+
+            for stat in self.stats:
+                xp = 0 if stat not in XPTABLE else XPTABLE[stat]
+                for res in self.stats[stat]:
+                    xp = xp if xp > 0 else XPTABLE[res]
+                    if ret:
+                        self.env.logh("%s: %s x %s -> %sxp"%(stat, self.stats[stat][res], res, xp*self.stats[stat][res]))
+                    else:
+                        self.env.error("%s: %s x %s -> %sxp"%(stat, self.stats[stat][res], res, xp*self.stats[stat][res]))
+            statstr = json.dumps(self.stats, indent=2)
+            self.env.logh("%s"%statstr)
+            with open("stats.json","w+") as statf:
+                statf.write(statstr)
+            
+            self.env.logh(''.join(["="]*100))
+            
             if not ret:
                 break
 
