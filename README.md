@@ -1,7 +1,7 @@
 # run_escape
 ## We can't all be zezima.
 
-![screen](https://github.com/cschlisner/run_escape/blob/master/screen.PNG)
+![screen](https://github.com/cschlisner/run_escape/blob/main/screen.PNG)
 
 an old school runescape bot using [lackey](https://github.com/glitchassassin/lackey) 
 
