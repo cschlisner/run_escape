@@ -1,7 +1,21 @@
 # run_escape
-We can't all be zezima.
+## We can't all be zezima.
 
-> an old school runescape bot using lackey
+![screen](https://github.com/cschlisner/run_escape/blob/master/screen.PNG)
+
+an old school runescape bot using [lackey](https://github.com/glitchassassin/lackey) 
+
+This is a tool to play oldschool runescape in a passive manner, I'm sure there are better bots out there if you're looking to make serious money. 
+
+This program will use the default Old School RuneScape window (must be in default 831x775 resolution)* and control it in the background on windows (although the window must be visible). 
+
+On Linux/MacOs** it will control it using the users mouse in the foreground until I figure out a way to do window communication for those platforms.***
+
+*the images should technically work for other resolutions but has not been tested
+
+**completely untested currently but it should work -- there is a seperate environment for each OS
+
+*** If you can implement this then you'd just need to extend the RSEnv class in botenv.py.
 
 ## usage:
 >$ python3 bot.py [-h] [-p PATH] [-r RESOURCES] [-i ITERATIONS] operation location
@@ -39,6 +53,11 @@ We can't all be zezima.
 > iron>plate
 
 > iron>platelegs
+
+> steel>platelegs
+
+> steel>platebody
+
 
 
 ## supported operations:
