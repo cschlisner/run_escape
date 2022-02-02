@@ -52,5 +52,7 @@ args = parser.parse_args()
 ## program start
 
 bot = RSBot()
+if args.operation == "SELECT":
+	args.operation = None
 bot.run(args.operation, args.location, resources=args.resource.split(","), iterations=args.iterations)
 

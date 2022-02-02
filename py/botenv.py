@@ -2,7 +2,7 @@
 import os, platform
 from turtle import screensize
 from lackey import *
-from numpy import char
+from numpy import char, mat
 import win32api, win32con, win32gui
 from ctypes import windll
 from keyboard import mouse
@@ -21,11 +21,12 @@ def imageMissing(event):
     ColLog().red("***** Missing image: %s"%event)
     return
 
-    
 # Environment classes -- handle all communication between bot and runescape window
 class RSenv:
 
+
     def __init__(self):
+        self.image_cache = {}
         self.banking = False
         self.location = None
 
@@ -68,7 +69,13 @@ class RSenv:
             self.error("did not find Runescape window")
             exit(0)
 
+    def fname(self, path):
+        return path.split("/")[-1]
+
     def getImageSet(self, imgBaseName):
+        # returned cached image set if saved this run
+        if imgBaseName in self.image_cache:
+            return self.image_cache[imgBaseName]
         self.logger.incIndent("getIMGS()")
         # treat all "_" chars in imgBaseName as directories
         imgP = imgBaseName.split("_")
@@ -82,10 +89,12 @@ class RSenv:
             addImagePath(dirstr)
         imgPattern = "%s%s*"%(dirstr, imgP[-1])
         # self.logg("searching for images matching %s"%(imgPattern))
-        # self.log(imgPattern)
         glb = glob.glob(imgPattern)
         self.logger.decIndent()
-        return list(map(os.path.basename, glb))
+        # return glb
+        imgs = list(map(lambda img : f"{dirstr}{os.path.basename(img)}", glb))
+        self.image_cache[imgBaseName] = imgs
+        return imgs
    
     def log(self, msg):
         self.logger.blue(msg)
@@ -118,6 +127,30 @@ class RSenv:
         self.window.click(Location(x, y))
     def dclickLoc(self, x, y):
         self.clickLoc(x, y)
+
+    def tryClick(self, img, time=None, reg=None, sim=None):
+        if time:
+            match = self.wait(img, time, reg, sim) 
+        else:
+            imset = self.getImageSet(img)
+            if reg is None:
+                reg = self.window
+            s = reg.getAutoWaitTimeout()
+            reg.setAutoWaitTimeout(0.1)
+            dms = Settings.MinSimilarity
+            Settings.MinSimilarity = sim if sim else dms
+            for i in imset:
+                match = reg.exists(i, 0.1)
+                if match:
+                    break
+            Settings.MinSimilarity = dms
+            reg.setAutoWaitTimeout(s)
+        if match:
+            self.click(match)
+            return match
+        else:
+            self.warn(f"Did not see {os.path.basename(img)}")
+        return None
     
     # wait for a range of possibilities for a given imagename
     def wait(self, img, time=None, reg=None, sim=None):
@@ -128,7 +161,7 @@ class RSenv:
         defs = Settings.MinSimilarity
         Settings.MinSimilarity = sim
         imgs = self.getImageSet(img)
-        self.log("waiting for one of %s"%imgs)
+        self.log(f"waiting for one of {list(map(self.fname, imgs))}")
         if len(imgs) == 0:
             self.error("did not find any matching images for: "+img)
         for i in imgs:
@@ -152,14 +185,17 @@ class RSenv:
         defs = Settings.MinSimilarity
         Settings.MinSimilarity = sim
         defAWT = reg.getAutoWaitTimeout()
-        imgs = self.getImageSet(img)
-        imgf = None
-        if len(imgs) == 0:
-            self.error("could not find matching images for: '%s'"%img)
-            return None
+        # if given normal os path as img, don't bother with searching for matching images
+        if "." in img:
+            imgf = img
         else:
+            imgs = self.getImageSet(img)
+            imgf = None
+            if len(imgs) == 0:
+                self.error(f"could not find matching images for: {img}")
+                return None
             imgf = imgs[0]
-        self.log("looking for %s"%img)
+        self.log(f"looking for {self.fname(imgf)}")
         reg.setAutoWaitTimeout(0)
         x = reg.exists(imgf)
         reg.setAutoWaitTimeout(defAWT)
@@ -167,6 +203,9 @@ class RSenv:
         return x
 
     def whichOneOf(self, img, wait=None, reg=None, sim=None):
+        # if given normal os path as img, convert to internal path representation ("/"->"_") before looking for matching image files
+        # also remove filename so we can match the regex: img*
+        img = img.replace("/", "_").split(".")[0]
         if reg is None:
             reg = self.window
         if sim is None:
@@ -175,7 +214,7 @@ class RSenv:
         Settings.MinSimilarity = sim
         defAWT = reg.getAutoWaitTimeout()
         imgs = self.getImageSet(img)
-        self.log("looking for one of %s"%imgs)
+        self.log(f"watching for one of {list(map(self.fname, imgs))}")
         if len(imgs) == 0:
             self.error("did not find any matching images for: "+img)
         reg.setAutoWaitTimeout(0)
@@ -202,7 +241,7 @@ class RSenv:
         Settings.MinSimilarity = sim
         defAWT = reg.getAutoWaitTimeout()
         imgs = self.getImageSet(img)
-        self.log("looking for one of %s"%imgs)
+        self.log(f"looking for one of {list(map(self.fname, imgs))}")
         if len(imgs) == 0:
             self.error("did not find any matching images for: "+img)
         reg.setAutoWaitTimeout(0)

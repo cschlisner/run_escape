@@ -1,15 +1,17 @@
 {
   "mine": {
-    "iron": 192,
+    "coal": 1511,
     "oresMissed": 0
   },
   "alchemy": {},
   "superheat": {
-    "iron": 232
+    "steel": 1139
   },
   "cut": {},
   "firemake": {},
   "smith": {
-    "iron": 0
+    "steel>platelegs": 4,
+    "steel>plate": 2,
+    "steel>platebody": 119.39999999999999
   }
 }

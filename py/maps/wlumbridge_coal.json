@@ -1,15 +1,12 @@
 {
-  "wlumbridge_coal_map.PNG": [
-    "coal_ore00.PNG",
-    "coal_ore02.PNG",
-    "coal_ore13.PNG"
+  "map1": [
+    "images/831-775/wlumbridge/#coal-map1/ore10.PNG",
+    "images/831-775/wlumbridge/#coal-map1/ore11.PNG",
+    "images/831-775/wlumbridge/#coal-map1/ore12.PNG"
   ],
-  "wlumbridge_coal_map1.PNG": [
-    "coal_ore10.PNG",
-    "coal_ore11.PNG",
-    "coal_ore12.PNG"
-  ],
-  "wlumbridge_coal_map2.PNG": [
-    "coal_ore20.PNG"
+  "map2": [],
+  "map": [
+    "images/831-775/wlumbridge/#coal-map/ore00.PNG",
+    "images/831-775/wlumbridge/#coal-map/ore02.PNG"
   ]
 }

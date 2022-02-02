@@ -111,11 +111,13 @@ class ColLog:
         elif "[action]" in msg:
             print(fmt(self.prefix+msg, ["green"]))
         elif "[info] Couldn't find" in msg:
-            print(fmt(self.prefix+"[info] Couldn't find %s"%msg[msg.index("d \'")+3:msg.index("' w")], ['yellow']))
+            fname = msg[msg.index("d \'")+3:msg.index("' w")].split("run_escape")[-1]
+            print(fmt(self.prefix+f"[info] Couldn't find {fname}", ['grey']))
         elif "[info] Found match" in msg:
             # example: [info] Found match for pattern 'images/831-775/inv/highalchemy.PNG' at ( 2149,754) with confidence ( 0.9823780655860901). Target at ( 2166,769)
             score = "%s"%(msg[msg.index("e (")+3:msg.index(". T")-1])
-            print(fmt(self.prefix+"[info] Found %s -> "%msg[msg.index("n \'")+3:msg.index("' a")], ["green"])+fmt(score, [self.getScoreColor(float(score))]))
+            fname = msg[msg.index("n \'")+3:msg.index("' a")].split("run_escape")[-1]
+            print(fmt(self.prefix+f"[Found]-> {score} ", [self.getScoreColor(float(score))])+fmt(f"[{fname}]", ["grey"]))
         else:
             print(fmt(self.prefix+msg, ["grey"]))
 
